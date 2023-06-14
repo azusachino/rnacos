@@ -52,6 +52,9 @@ nacos_rust_client = "0.2"
 zip="0.6"
 tempfile = "3"
 
+# sled db
+sled = "0.34"
+
 
 [dependencies.uuid]
 version = "1.2.1"
