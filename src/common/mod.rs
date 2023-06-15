@@ -1,3 +1,5 @@
+use uuid::Uuid;
+
 pub mod config_utils;
 pub mod delay_notify;
 pub mod rusqlite_utils;
@@ -62,4 +64,20 @@ impl AppSysConfig {
     pub fn get_http_addr(&self) -> String {
         format!("0.0.0.0:{}", &self.http_port)
     }
+}
+
+/**
+ * generate uuid in i64
+ */
+pub fn gen_uuid() -> i64 {
+    let uuid = Uuid::new_v4();
+    let bytes = uuid.as_bytes();
+    let msb = u64::from_be_bytes([
+        bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+    ]);
+    let lsb = u64::from_be_bytes([
+        bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15],
+    ]);
+
+    ((msb << 32) | lsb) as i64
 }
