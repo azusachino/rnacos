@@ -2,7 +2,7 @@ use super::{
     cfg::{ConfigKey, ConfigValue},
     dal::ConfigHistoryParam,
 };
-use crate::common::{gen_uuid, AppSysConfig};
+use crate::common::AppSysConfig;
 use chrono::Local;
 use prost::Message;
 use serde::{Deserialize, Serialize};
@@ -73,26 +73,23 @@ pub struct ConfigDB {
     config_history_helper: ConfigHistoryDbHelper,
 }
 
-impl Default for ConfigDB {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl ConfigDB {
-    pub fn new() -> Self {
+    pub fn new() -> anyhow::Result<Self> {
         let sys_config = AppSysConfig::init_from_env();
-        let db = sled::open(sys_config.config_db_dir).unwrap();
+        let db = sled::open(sys_config.config_db_dir)?;
 
-        Self {
+        // 慎用 ..Default::default(), 会触发当前 struct 本身的 Default::default().
+        Ok(Self {
             inner_db: db,
-            ..Default::default()
-        }
+            // 结果导致 open 了两次 db，一直 get_lock failed...
+            config_helper: ConfigDbHelper::default(),
+            config_history_helper: ConfigHistoryDbHelper::default(),
+        })
     }
 
     pub fn update_config(&self, key: &ConfigKey, val: &ConfigValue) -> anyhow::Result<()> {
         let config = Config {
-            id: gen_uuid(),
+            id: 0,
             tenant: key.tenant.as_ref().to_owned(),
             group: key.group.as_ref().to_owned(),
             data_id: key.data_id.as_ref().to_owned(),
@@ -157,7 +154,8 @@ impl ConfigDB {
 
     pub fn query_config_list(&self) -> anyhow::Result<Vec<Config>> {
         let mut ret = vec![];
-        let mut iter = self.inner_db.iter();
+        let his_prefix = self.config_helper.get_prefix();
+        let mut iter = self.inner_db.scan_prefix(&his_prefix);
         while let Some(Ok((_, v))) = iter.next() {
             // let cfg = NacosConfig::decode(v.to_vec())?;
             let cfg = Config::decode(v.as_ref())?;
@@ -181,7 +179,6 @@ impl ConfigDB {
             );
             // count total using new iter, for count will use the iter
             let total = self.inner_db.scan_prefix(&his_key).count();
-            // 暂时先实现个自然插入序版本, AAAAA, 为什么要用 option...
             let iter = self.inner_db.scan_prefix(&his_key);
             let mut ret = vec![];
             if let Some(offset) = param.offset {
@@ -210,14 +207,14 @@ mod tests {
 
     #[test]
     fn test() {
-        let config_db = ConfigDB::new();
+        let config_db = ConfigDB::new().unwrap();
         let key = ConfigKey {
             tenant: Arc::new("dev".to_owned()),
             group: Arc::new("dev".to_owned()),
             data_id: Arc::new("iris-app-dev.properties".to_owned()),
         };
         let val = ConfigValue {
-            content: Arc::new("appid=12345\r\nusername=hohoho\r\npass=1234".to_owned()),
+            content: Arc::new("appid=iris-app\r\nusername=iris\r\npass=1***5".to_owned()),
             md5: Arc::new("".to_owned()),
         };
         config_db.update_config(&key, &val).unwrap();
@@ -228,7 +225,7 @@ mod tests {
 
     #[test]
     fn page_test() {
-        let config_db = ConfigDB::new();
+        let config_db = ConfigDB::new().unwrap();
         let param = ConfigHistoryParam {
             id: None,
             tenant: Some("dev".to_owned()),
@@ -250,7 +247,7 @@ mod tests {
 
     #[test]
     fn test_del() {
-        let config_db = ConfigDB::new();
+        let config_db = ConfigDB::new().unwrap();
         let key = ConfigKey {
             tenant: Arc::new("dev".to_owned()),
             group: Arc::new("dev".to_owned()),
